@@ -1,0 +1,15 @@
+application: buzztoblogger 
+version: 1
+runtime: python
+api_version: 1
+
+handlers:
+- url: /
+  script: index.py
+
+- url: /subscriber.*
+  script: subscriber.py
+
+- url: /.*
+  script: main.py
+

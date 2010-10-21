@@ -1,0 +1,76 @@
+
+import os
+from google.appengine.ext.webapp import template
+
+from google.appengine.api import users
+from google.appengine.ext import webapp
+from google.appengine.ext.webapp.util import run_wsgi_app
+
+import gdata.blogger.service
+import gdata.alt.appengine
+from gdata.auth import AuthSubToken
+import gdata
+import atom
+
+from google.appengine.ext import db
+
+class UserStuff(db.Model):
+    user = db.UserProperty()
+    authToken = db.StringProperty()
+    blogFeedUrl = db.StringProperty()
+
+
+class PickBlogHandler(webapp.RequestHandler):
+    def get(self):
+        self.response.headers['Content-Type'] = 'text/html'
+        self.response.out.write('picked a blog, eh?')
+        currentUser = users.get_current_user()
+        query = UserStuff.all()
+        query.filter('user =', currentUser)
+        results = query.fetch(limit=1)
+        userStuff = results[0]
+        self.response.out.write('got it, user %s, tok %s, blog %s' % (userStuff.user, userStuff.authToken, userStuff.blogFeedUrl))
+
+
+
+class AuthHandler(webapp.RequestHandler):
+    def get(self):
+        currentUser = users.get_current_user()
+        if currentUser:
+            self.response.headers['Content-Type'] = 'text/html'
+
+            self.blogger =  gdata.blogger.service.BloggerService()
+            gdata.alt.appengine.run_on_appengine(self.blogger)
+            
+            authTok =  gdata.auth.extract_auth_sub_token_from_url(self.request.uri)
+            self.blogger.SetAuthSubToken(authTok)
+            
+            self.blogger.UpgradeToSessionToken(authTok)
+            self.blogger.SetAuthSubToken(authTok.get_token_string())
+            sessionTok = self.blogger.GetAuthSubToken()
+            # DEBUG ONLY:
+            # self.response.out.write('Updated AuthTok= %s, SessionTok = %s' % (authTok, sessionTok))
+ 
+            feed = self.blogger.GetBlogFeed()
+            
+            #self.response.out.write('<ul> %s' % feed.title.text)
+            #for entry in feed.entry:
+            #    self.response.out.write('<li>%s' % entry.title.text)
+                
+           
+
+            template_values = {
+                'title': feed.title.text,
+                'entries': feed.entry,
+            }
+
+            path = os.path.join(os.path.dirname(__file__), 'auth.html')
+            self.response.out.write(template.render(path, template_values))
+
+
+            userStuff = UserStuff()
+            userStuff.user = currentUser
+            userStuff.authToken = authTok.get_token_string()
+            userStuff.put()
+        else:
+            self.redirect(users.create_login_url(self.request.uri))
